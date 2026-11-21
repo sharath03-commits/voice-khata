@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15213A">
+<title>Voice Khata</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&family=Noto+Sans+Kannada:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#15213A; --navy-2:#1D2B47; --mint:#7CCFC2; --teal:#1E8A7B;
+  --paper:#F6F6F2; --card:#FFFFFF; --ink:#1A2436; --muted:#667085; --line:#E3E3DC;
+  --ochre:#B7791F; --danger:#B42318;
+  --font:"Noto Sans","Noto Sans Kannada","Noto Sans Devanagari",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{--paper:#0F1626; --card:#18223A; --ink:#E8EDF5; --muted:#9AA6B8; --line:#26324D; color-scheme:dark;}
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:var(--font);background:var(--paper);color:var(--ink);font-size:16px;line-height:1.45;
+  padding-bottom:env(safe-area-inset-bottom,0px)}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--mint);outline-offset:2px}
+
+.app{display:grid;grid-template-columns:minmax(360px,44%) 1fr;min-height:100vh}
+
+/* ---------------- counter (voice side) ---------------- */
+.counter{background:var(--navy);color:#fff;padding:calc(28px + env(safe-area-inset-top,0px)) 36px 32px;
+  display:flex;flex-direction:column;gap:22px;position:sticky;top:0;height:100vh;overflow:auto}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{font-weight:800;font-size:22px;letter-spacing:.5px}
+.brand small{display:block;font-weight:400;font-size:13px;color:#A9B4C7;letter-spacing:0}
+.langs{display:flex;background:var(--navy-2);border-radius:999px;padding:3px}
+.langs button{border:0;background:transparent;color:#C9D2E0;padding:7px 13px;border-radius:999px;font-size:14px}
+.langs button[aria-pressed="true"]{background:var(--mint);color:var(--navy);font-weight:700}
+
+.wave{display:flex;align-items:center;justify-content:center;gap:5px;height:150px;margin-top:8px}
+.wave i{display:block;width:5px;border-radius:3px;background:#56627A;height:var(--h);transition:background .2s}
+.listening .wave i{background:var(--mint);animation:pulse var(--d) ease-in-out infinite alternate}
+.thinking .wave i{background:#8EA0BC;animation:pulse 1.4s ease-in-out infinite alternate}
+@keyframes pulse{from{transform:scaleY(.35)}to{transform:scaleY(1)}}
+@media (prefers-reduced-motion:reduce){.wave i,.mic{animation:none!important}}
+
+.status{text-align:center;color:#C9D2E0;font-size:15px;min-height:22px}
+.mic{align-self:center;width:96px;height:96px;border-radius:50%;border:0;background:var(--mint);color:var(--navy);
+  display:grid;place-items:center;box-shadow:0 0 0 0 rgba(124,207,194,.5);transition:transform .15s}
+.mic:active{transform:scale(.96)}
+.listening .mic{background:#fff;animation:ring 1.6s ease-out infinite}
+@keyframes ring{to{box-shadow:0 0 0 22px rgba(124,207,194,0)}}
+.mic svg{width:38px;height:38px}
+
+.heard{background:#fff;color:#1A2436;border-radius:6px;padding:20px 22px;min-height:120px}
+.heard .tag{font-size:13px;font-weight:700;color:var(--teal);display:flex;align-items:center;gap:7px}
+.heard .tag::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.heard.ask .tag{color:var(--ochre)}
+.heard.error .tag{color:var(--danger)}
+.said{font-size:24px;font-weight:700;margin:8px 0 4px;word-break:break-word}
+.said.interim{color:#8090A8}
+.reply{font-size:15px;color:#3B4659}
+.reply b{color:var(--teal)}
+.heard.ask .reply b{color:var(--ochre)}
+.opts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.opts:empty{display:none}
+.opts button{border:1.5px solid #CBD2DD;background:#fff;color:#1A2436;padding:9px 14px;border-radius:6px;font-weight:600}
+.opts button.yes{background:var(--teal);border-color:var(--teal);color:#fff}
+
+.tools{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.ghost{border:1px solid #3A4866;background:transparent;color:#DDE3EE;padding:8px 14px;border-radius:6px;font-size:14px}
+.typed{display:flex;gap:8px}
+.typed input{flex:1;min-width:0;background:var(--navy-2);border:1px solid #33415F;border-radius:6px;padding:9px 12px;color:#fff}
+.typed input::placeholder{color:#8291AB}
+.switch{display:flex;align-items:center;gap:8px;font-size:14px;color:#C9D2E0}
+.switch input{accent-color:var(--mint);width:18px;height:18px}
+.hint{font-size:13px;color:#8F9BB2;margin:auto 0 0}
+.hint q{color:#DDE3EE}
+
+/* ---------------- ledger side ---------------- */
+.ledger{padding:calc(28px + env(safe-area-inset-top,0px)) 40px 120px;max-width:860px;width:100%}
+.today{display:grid;grid-template-columns:repeat(3,1fr);border-top:2px solid var(--ink);border-bottom:1px solid var(--line)}
+.today div{padding:14px 4px}
+.today div+div{border-left:1px solid var(--line);padding-left:16px}
+.today span{display:block;font-size:13px;color:var(--muted)}
+.today strong{font-size:24px;font-weight:700}
+.today .pay strong{color:var(--teal)}
+.bar{display:flex;align-items:center;gap:10px;margin:28px 0 8px;flex-wrap:wrap}
+.bar h2{font-size:20px;margin:0;flex:1}
+.search{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:8px 12px;min-width:180px}
+.btn{border:1px solid var(--ink);background:var(--ink);color:var(--paper);border-radius:6px;padding:8px 14px;font-weight:600;font-size:14px}
+.btn.line{background:transparent;color:var(--ink)}
+.list{list-style:none;margin:0;padding:0}
+.list li button{width:100%;display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center;text-align:left;
+  border:0;border-bottom:1px solid var(--line);background:transparent;padding:14px 4px}
+.list li button:hover{background:var(--card)}
+.list .nm{font-weight:600;font-size:17px}
+.list .meta{grid-column:1;font-size:13px;color:var(--muted)}
+.list .amt{grid-row:1/3;grid-column:2;font-weight:700;font-size:18px;text-align:right}
+.amt.owes{color:var(--ink)} .amt.adv{color:var(--teal)} .amt.zero{color:var(--muted);font-weight:500}
+.amt small{display:block;font-size:12px;font-weight:500;color:var(--muted)}
+.empty{padding:28px 4px;color:var(--muted)}
+.flash{animation:flash 1.6s ease-out}
+@keyframes flash{from{background:rgba(124,207,194,.45)}to{background:transparent}}
+
+/* detail sheet */
+dialog{border:0;padding:0;border-radius:8px;width:min(560px,94vw);max-height:88vh;background:var(--card);color:var(--ink)}
+dialog::backdrop{background:rgba(10,16,30,.55)}
+.sheet{padding:24px 26px}
+.sheet header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.sheet h3{margin:0;font-size:22px}
+.sheet .big{font-size:34px;font-weight:800;margin:10px 0 2px}
+.sheet .sub{color:var(--muted);font-size:14px}
+.x{border:0;background:transparent;font-size:26px;line-height:1;color:var(--muted)}
+.entry-form{display:flex;gap:8px;margin:18px 0;flex-wrap:wrap}
+.entry-form input{flex:1;min-width:110px;border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--paper)}
+.entries{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.entries li{display:grid;grid-template-columns:1fr auto auto;gap:4px 12px;padding:11px 0;border-bottom:1px solid var(--line);align-items:center}
+.entries .k{font-weight:600}
+.entries .k.payment{color:var(--teal)}
+.entries .w{font-size:13px;color:var(--muted);grid-column:1/2}
+.entries .v{font-weight:700;grid-row:1/3;grid-column:2}
+.entries .rm{grid-row:1/3;grid-column:3;border:0;background:transparent;color:var(--muted);font-size:13px;text-decoration:underline}
+.entries li.void{opacity:.5}
+.entries li.void .v{text-decoration:line-through}
+.tagrow{display:flex;gap:8px;margin-top:16px}
+.tagrow input{flex:1;min-width:0;border:1px solid var(--line);border-radius:6px;padding:7px 10px;background:var(--paper)}
+.foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:30px;font-size:14px;color:var(--muted)}
+.foot a{color:inherit}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+@media (max-width:860px){
+  .app{grid-template-columns:1fr}
+  .counter{position:relative;height:auto;padding:calc(18px + env(safe-area-inset-top,0px)) 18px 22px;gap:16px}
+  .wave{height:90px}
+  .mic{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom,0px));left:50%;margin-left:-40px;width:80px;height:80px;z-index:5;
+    box-shadow:0 6px 20px rgba(0,0,0,.25)}
+  .ledger{padding:22px 18px 130px}
+  .today strong{font-size:19px}
+  .said{font-size:21px}
+  .hint{display:none}
+}
+
+/* New multi-page navigation and account screens */
+.navbar{grid-column:1/-1;display:flex;align-items:center;gap:8px;padding:12px 22px;background:var(--navy);color:#fff;position:sticky;top:0;z-index:10;flex-wrap:wrap}
+.navbar .navbrand{font-weight:800;margin-right:auto}.navbar button{border:1px solid #40506d;background:transparent;color:#e9eef6;border-radius:7px;padding:8px 12px;font-size:13px}
+.navbar button.active{background:var(--mint);color:var(--navy);border-color:var(--mint);font-weight:700}
+.page-hidden{display:none!important}.ledger.full{grid-column:1/-1;max-width:none;padding:28px 4vw 80px}
+.page-title{font-size:25px;margin:0 0 6px}.page-sub{color:var(--muted);margin:0 0 22px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin:16px 0}
+.data-table{width:100%;border-collapse:collapse}.data-table th,.data-table td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);font-size:14px}.data-table th{color:var(--muted);font-weight:600}
+.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.form-grid label{display:grid;gap:6px;font-size:13px;color:var(--muted)}.form-grid input,.form-grid textarea{padding:10px;border:1px solid var(--line);border-radius:7px;background:var(--paper);color:var(--ink)}
+.auth-cover{position:fixed;inset:0;background:rgba(10,17,31,.82);z-index:30;display:grid;place-items:center;padding:18px}.auth-card{width:min(420px,100%);background:var(--card);color:var(--ink);padding:28px;border-radius:14px;box-shadow:0 20px 80px #0005}.auth-card h1{margin:0 0 6px}.auth-card p{color:var(--muted)}.auth-card input{width:100%;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--paper);margin:7px 0 12px}.auth-card button{width:100%;padding:11px;border:0;border-radius:8px;background:var(--teal);color:white;font-weight:700}.auth-note{font-size:12px;color:var(--muted)}
+@media(max-width:860px){.navbar{position:sticky;padding:9px;gap:5px}.navbar button{padding:7px;font-size:12px}.form-grid{grid-template-columns:1fr}.ledger.full{padding:20px 14px 110px}.data-table{min-width:650px}.panel{overflow:auto}}
+
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="navbar" aria-label="Main navigation">
+    <span class="navbrand">VOICE KHATA</span>
+    <button data-page="dashboard" class="active">Dashboard</button>
+    <button data-page="voice">Voice Assistant</button>
+    <button data-page="customers">Customers</button>
+    <button data-page="ledgers">All Ledgers</button>
+    <button data-page="messages">SMS History</button>
+    <button data-page="store">Store Details</button>
+    <button id="wakeToggle" type="button" aria-pressed="false">Enable Hey Khata</button>
+    <button id="logoutBtn">Logout</button>
+  </nav>
+  <section class="counter" id="counter" data-view="voice" aria-label="Voice input">
+    <div class="top">
+      <div class="brand">Voice Khata<small>Speak once. The ledger updates itself.</small></div>
+      <div class="langs" role="group" aria-label="Speaking language">
+        <button data-lang="kn" lang="kn">ಕನ್ನಡ</button>
+        <button data-lang="hi" lang="hi">हिंदी</button>
+        <button data-lang="en">English</button>
+      </div>
+    </div>
+
+    <div class="wave" id="wave" aria-hidden="true"></div>
+    <div class="status" id="status" aria-live="polite">Tap the mic and speak</div>
+
+    <div class="heard" id="heard" aria-live="polite">
+      <div class="tag" id="heardTag">Ready</div>
+      <div class="said" id="said">“Ramesh ka 340 udhaar.”</div>
+      <div class="reply" id="reply">Say a name, an amount, and udhaar or jama.</div>
+      <div class="opts" id="opts"></div>
+    </div>
+
+    <button class="mic" id="mic" aria-label="Start speaking">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+
+    <div class="tools">
+      <button class="ghost" id="undo">Undo last entry</button>
+      <label class="switch"><input type="checkbox" id="handsfree"> Hands-free</label>
+    </div>
+    <form class="typed" id="typed" autocomplete="off">
+      <label class="sr" for="typedInput">Type an entry</label>
+      <input id="typedInput" placeholder="Or type: Lakshmi 1250 udhaar">
+      <button class="ghost" type="submit">Send</button>
+    </form>
+    <p class="hint">Try <q>Ramesh ne 200 diya</q>, <q lang="kn">ರಮೇಶ್ ಬಾಕಿ ಎಷ್ಟು</q>, <q>Nahi, 430</q> or <q>aaj ka hisaab</q>.</p>
+  </section>
+
+  <main class="ledger" data-view="dashboard">
+    <div class="today" aria-label="Today">
+      <div><span>Udhaar given today</span><strong id="tCredit">₹0</strong></div>
+      <div class="pay"><span>Jama received today</span><strong id="tPay">₹0</strong></div>
+      <div><span>Total baaki</span><strong id="tOut">₹0</strong></div>
+    </div>
+
+    <div class="bar">
+      <h2>Customers</h2>
+      <input class="search" id="search" type="search" placeholder="Find customer" aria-label="Find customer">
+      <button class="btn line" id="addBtn">Add customer</button>
+    </div>
+    <ul class="list" id="list"></ul>
+
+    <div class="foot">
+      <span id="count"></span>
+      <a href="/api/export.csv">Download ledger (CSV)</a>
+    </div>
+  </main>
+</div>
+
+
+  <main class="ledger full page-hidden" data-view="customers" id="customersPage">
+    <h1 class="page-title">Customer Directory</h1><p class="page-sub">Customers, contact numbers and current balances.</p>
+    <div class="panel"><div class="bar"><h2>All customers</h2><input class="search" id="customerSearch2" placeholder="Search customers"><button class="btn" id="addCustomer2">Add customer</button></div><div id="customerTable"></div></div>
+  </main>
+  <main class="ledger full page-hidden" data-view="ledgers" id="ledgersPage">
+    <h1 class="page-title">All Ledgers</h1><p class="page-sub">A complete transaction register across every customer.</p>
+    <div class="panel"><div class="bar"><h2>Transactions</h2><input class="search" id="ledgerSearch" placeholder="Search customer or transaction"></div><div id="ledgerTable"></div></div>
+  </main>
+  <main class="ledger full page-hidden" data-view="messages" id="messagesPage">
+    <h1 class="page-title">Customer SMS History</h1><p class="page-sub">Automatic balance messages sent after successful transactions.</p>
+    <div class="panel"><div id="smsTable">Loading messages…</div></div>
+  </main>
+  <main class="ledger full page-hidden" data-view="store" id="storePage">
+    <h1 class="page-title">Store Details</h1><p class="page-sub">These details appear in customer notifications.</p>
+    <form class="panel form-grid" id="storeForm">
+      <label>Store name<input name="store_name" required maxlength="100"></label>
+      <label>Owner name<input name="owner_name" maxlength="80"></label>
+      <label>Store mobile number<input name="phone" maxlength="20"></label>
+      <label>Store address<input name="address" maxlength="240"></label>
+      <div><button class="btn" type="submit">Save store details</button></div>
+    </form>
+    <div class="panel"><b>SMS setup</b><p class="page-sub">Configure Twilio credentials on the server to send real SMS. Without credentials, messages are recorded as failed and no customer SMS is sent.</p></div>
+  </main>
+
+<div class="auth-cover" id="authCover"><div class="auth-card"><h1>Voice Khata</h1><p>Store owner login · mobile OTP</p>
+  <div id="phoneStep"><label for="ownerPhone">Mobile number</label><input id="ownerPhone" type="tel" placeholder="10-digit mobile number" autocomplete="tel"><button id="requestOtp">Send OTP</button></div>
+  <div id="otpStep" class="page-hidden"><label for="ownerOtp">Enter verification code</label><input id="ownerOtp" inputmode="numeric" maxlength="6" placeholder="6-digit OTP"><button id="verifyOtp">Verify and login</button></div>
+  <p id="authMessage" class="auth-note">Your owner session stays signed in for 14 days.</p>
+</div></div>
+<dialog id="sheet"><div class="sheet" id="sheetBody"></div></dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const state = { lang: localStorage.getItem("vk-lang") || "hi", listening: false, rec: null,
+                customers: [], flashId: null, wakeEnabled: false, wakeRec: null, wakeCommandActive: false };
+const BCP = { kn: "kn-IN", hi: "hi-IN", en: "en-IN" };
+
+/* ---------- formatting ---------- */
+function inr(paise){
+  const neg = paise < 0; paise = Math.abs(paise);
+  const r = Math.floor(paise/100), p = paise % 100;
+  let s = r.toLocaleString("en-IN");
+  if (p) s += "." + String(p).padStart(2,"0");
+  return (neg?"-":"") + "₹" + s;
+}
+function when(iso){
+  if(!iso) return "";
+  const d = new Date(iso), now = new Date();
+  const t = d.toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"});
+  if (d.toDateString() === now.toDateString()) return "today " + t;
+  const y = new Date(now); y.setDate(now.getDate()-1);
+  if (d.toDateString() === y.toDateString()) return "yesterday " + t;
+  return d.toLocaleDateString("en-IN",{day:"numeric",month:"short"}) + " " + t;
+}
+function esc(s){ return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function balanceHtml(b){
+  if (b > 0) return `<span class="amt owes">${inr(b)}<small>baaki</small></span>`;
+  if (b < 0) return `<span class="amt adv">${inr(-b)}<small>advance</small></span>`;
+  return `<span class="amt zero">Settled</span>`;
+}
+
+/* ---------- waveform ---------- */
+(function buildWave(){
+  const w = $("#wave"), n = 41, tall = matchMedia("(max-width:860px)").matches ? 70 : 120;
+  for (let i=0;i<n;i++){
+    const x = Math.abs(i - (n-1)/2) / ((n-1)/2);
+    const h = 12 + (1 - x*x) * tall * (0.55 + Math.random()*0.45);
+    const bar = document.createElement("i");
+    bar.style.setProperty("--h", h.toFixed(0)+"px");
+    bar.style.setProperty("--d", (0.35 + Math.random()*0.5).toFixed(2)+"s");
+    w.appendChild(bar);
+  }
+})();
+function mode(m){
+  const c = $("#counter");
+  c.classList.toggle("listening", m === "listening" || m === "wake");
+  c.classList.toggle("thinking", m === "thinking");
+  $("#mic").setAttribute("aria-label", m === "listening" ? "Stop listening" : "Start speaking");
+  $("#status").textContent = { listening: "Listening for your entry…", wake: "Waiting for “Hey Khata”…", thinking: "Checking…", idle: "Tap the mic and speak",
+                               speaking: "Speaking…" }[m] || "";
+}
+
+/* ---------- language ---------- */
+function setLang(l){
+  state.lang = l; localStorage.setItem("vk-lang", l);
+  document.querySelectorAll(".langs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.lang === l));
+}
+document.querySelectorAll(".langs button").forEach(b => b.onclick = () => setLang(b.dataset.lang));
+setLang(state.lang);
+
+/* ---------- speech recognition + Hey Khata wake word ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let wakeRestartTimer = null;
+function updateWakeButton(){
+  const b = $("#wakeToggle");
+  b.textContent = state.wakeEnabled ? "Hey Khata: ON · Turn off" : "Enable Hey Khata";
+  b.setAttribute("aria-pressed", String(state.wakeEnabled));
+}
+function stopWakeRecognition(abort=true){
+  if (wakeRestartTimer) { clearTimeout(wakeRestartTimer); wakeRestartTimer = null; }
+  const old = state.wakeRec; state.wakeRec = null;
+  if (old) { try { abort ? old.abort() : old.stop(); } catch(_) {} }
+}
+function disableWake(showStatus=true){
+  state.wakeEnabled = false; state.wakeCommandActive = false;
+  stopWakeRecognition(true);
+  if (state.rec && state.listening) { try { state.rec.abort(); } catch(_) {} }
+  state.listening = false; updateWakeButton();
+  if (showStatus) { mode("idle"); showHeard({status:"answer", text:"Wake word is off. Use the microphone button whenever you want to speak."}); }
+}
+function startWakeRecognition(){
+  if (!state.wakeEnabled || !SR || state.wakeCommandActive || state.wakeRec) return;
+  if (state.listening) { wakeRestartTimer = setTimeout(startWakeRecognition, 500); return; }
+  const rec = new SR();
+  // Keep the wake phrase in English; the transaction language is selected separately.
+  rec.lang = "en-IN"; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 3;
+  state.wakeRec = rec;
+  rec.onstart = () => { if (state.wakeEnabled) mode("wake"); };
+  rec.onresult = e => {
+    for (let i=e.resultIndex; i<e.results.length; i++) {
+      const result=e.results[i];
+      const heard=Array.from(result).map(x=>x.transcript||"").join(" ").toLowerCase();
+      if (/\bhey\s*khat+a+\b|\bhey\s*khata\b|\bhey\s*k[aou]t+a?\b/.test(heard)) {
+        state.wakeCommandActive = true;
+        // Wait until the wake recognizer releases the microphone before speaking.
+        rec.onend = () => {
+          if (!state.wakeEnabled) return;
+          state.wakeRec = null;
+          speak("Yes, tell me.", "en-IN", () => { if (state.wakeEnabled) listen(true); else mode("idle"); });
+        };
+        try { rec.stop(); } catch(_) { state.wakeRec=null; speak("Yes, tell me.", "en-IN", () => { if (state.wakeEnabled) listen(true); else mode("idle"); }); }
+        return;
+      }
+    }
+  };
+  rec.onerror = e => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      disableWake(false);
+      showHeard({status:"error", text:"Microphone permission is blocked. Allow microphone access for localhost in Chrome, then enable Hey Khata again."});
+    }
+  };
+  rec.onend = () => {
+    if (state.wakeRec === rec) state.wakeRec = null;
+    if (state.wakeEnabled && !state.wakeCommandActive) {
+      wakeRestartTimer = setTimeout(startWakeRecognition, 650);
+    }
+  };
+  try { rec.start(); } catch(_) { state.wakeRec=null; if(state.wakeEnabled) wakeRestartTimer=setTimeout(startWakeRecognition,1200); }
+}
+function enableWake(){
+  if (!SR) {
+    showHeard({status:"error", text:"Hey Khata wake-word mode requires Chrome or another browser with SpeechRecognition support. You can still use the manual microphone."});
+    return;
+  }
+  state.wakeEnabled = true; updateWakeButton();
+  showHeard({status:"answer", text:"Hey Khata is active. Say “Hey Khata” whenever you want to make an entry. Keep this tab open and allow microphone access."});
+  startWakeRecognition();
+}
+$("#wakeToggle").onclick = () => state.wakeEnabled ? disableWake() : enableWake();
+function listen(fromWake=false){
+  if (!SR){
+    showHeard({status:"error", text:"Voice input needs Chrome on Android or desktop. Type the entry below instead."});
+    $("#typedInput").focus(); return;
+  }
+  if (state.listening){ state.rec && state.rec.stop(); return; }
+  stopWakeRecognition(true);
+  if (state.wakeEnabled) state.wakeCommandActive = true;
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  const rec = new SR();
+  rec.lang = BCP[state.lang]; rec.interimResults = true; rec.maxAlternatives = 5; rec.continuous = false;
+  let finalSent = false;
+  rec.onstart = () => { state.listening = true; mode("listening"); };
+  rec.onresult = e => {
+    const res = e.results[e.results.length-1];
+    if (!res.isFinal){ setSaid(res[0].transcript, true); return; }
+    finalSent = true;
+    const alts = Array.from(res).map(a => ({ text: a.transcript, confidence: a.confidence || null }));
+    setSaid(alts[0].text, false);
+    send({ alternatives: alts, lang_hint: state.lang });
+  };
+  rec.onerror = e => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed")
+      showHeard({status:"error", text:"Microphone is blocked. Allow mic access for this site (needs https or localhost), then try again."});
+    else if (e.error === "no-speech") $("#status").textContent = "Didn't hear anything. Say your entry after Hey Khata.";
+  };
+  rec.onend = () => {
+    state.listening = false;
+    if (!finalSent) {
+      if (state.wakeEnabled) { state.wakeCommandActive=false; mode("wake"); wakeRestartTimer=setTimeout(startWakeRecognition,500); }
+      else mode("idle");
+    }
+  };
+  state.rec = rec;
+  try { rec.start(); } catch(_) { if(state.wakeEnabled){state.wakeCommandActive=false;wakeRestartTimer=setTimeout(startWakeRecognition,700);} }
+}
+$("#mic").onclick = () => listen(false);
+/* ---------- speech output ---------- */
+let voices = [];
+function loadVoices(){ voices = speechSynthesis.getVoices(); }
+if ("speechSynthesis" in window){ loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+function speak(text, lang, then){
+  if (!("speechSynthesis" in window) || !text){ then && then(); return; }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = lang; u.rate = 1;
+  const v = voices.find(v => v.lang === lang) || voices.find(v => v.lang && v.lang.replace("_","-").startsWith(lang.slice(0,2)));
+  if (v) u.voice = v;
+  let done = false;
+  const finish = () => { if (!done){ done = true; then && then(); } };
+  u.onend = finish; u.onerror = finish;
+  setTimeout(finish, 9000); // some Android builds never fire onend
+  mode("speaking");
+  speechSynthesis.speak(u);
+}
+
+/* ---------- talk to backend ---------- */
+async function api(path, opts={}){
+  const r = await fetch(path, { headers: {"Content-Type":"application/json"}, ...opts });
+  if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail || r.statusText);
+  return r.json();
+}
+async function send(body){
+  mode("thinking");
+  try{
+    handle(await api("/api/utterance", { method:"POST", body: JSON.stringify(body) }));
+  }catch(err){
+    mode("idle");
+    showHeard({status:"error", text:"Couldn't reach the ledger server. Check that it's running."});
+  }
+}
+function handle(out){
+  showHeard(out);
+  if (out.customer_id) state.flashId = out.customer_id;
+  if (["saved","undone"].includes(out.status)) refresh();
+  speak(out.speak, out.tts_lang, () => {
+    if (out.status === "ask" || $("#handsfree").checked) {
+      setTimeout(() => listen(false), 250);
+    } else if (state.wakeEnabled) {
+      state.wakeCommandActive = false;
+      setTimeout(startWakeRecognition, 650);
+    } else {
+      mode("idle");
+    }
+  });
+}
+
+/* ---------- heard card ---------- */
+function setSaid(t, interim){
+  const s = $("#said"); s.textContent = "“" + t + "”"; s.classList.toggle("interim", !!interim);
+  $("#heardTag").textContent = "Heard";
+  $("#heard").className = "heard";
+  $("#opts").innerHTML = "";
+}
+function showHeard(out){
+  const h = $("#heard");
+  h.className = "heard" + (out.status === "ask" ? " ask" : out.status === "error" ? " error" : "");
+  $("#heardTag").textContent = { saved:"Saved", ask:"Needs a quick answer", answer:"Answer",
+                                 undone:"Removed", error:"Didn't work" }[out.status] || "Heard";
+  const label = out.status === "saved" ? "Saved" : out.status === "ask" ? "Asking" : "";
+  $("#reply").innerHTML = (label ? `<b>${label}</b> · ` : "") + esc(out.text);
+  const opts = $("#opts"); opts.innerHTML = "";
+  (out.options || []).forEach(o => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = o.label;
+    if (o.type === "confirm" && o.value === true) b.className = "yes";
+    b.onclick = () => {
+      if ("speechSynthesis" in window) speechSynthesis.cancel();
+      state.rec && state.rec.abort();
+      send(o.type === "confirm" ? { confirm: o.value } : { choice: o });
+    };
+    opts.appendChild(b);
+  });
+}
+
+/* ---------- ledger ---------- */
+async function refresh(){
+  const [cs, rep] = await Promise.all([api("/api/customers"), api("/api/report/today")]);
+  state.customers = cs;
+  $("#tCredit").textContent = inr(rep.credit_paise);
+  $("#tPay").textContent = inr(rep.payment_paise);
+  $("#tOut").textContent = inr(rep.outstanding_paise);
+  renderList();
+}
+function renderList(){
+  const q = $("#search").value.trim().toLowerCase();
+  const cs = state.customers.filter(c => !q || c.label.toLowerCase().includes(q));
+  const ul = $("#list");
+  if (!state.customers.length){
+    ul.innerHTML = `<li class="empty">No customers yet. Say “Ramesh ka 340 udhaar” and Voice Khata adds Ramesh once you confirm.</li>`;
+  } else if (!cs.length){
+    ul.innerHTML = `<li class="empty">No customer matches “${esc(q)}”.</li>`;
+  } else {
+    ul.innerHTML = cs.map(c => `<li><button data-id="${c.id}" class="${c.id === state.flashId ? "flash" : ""}">
+      <span class="nm">${esc(c.label)}</span>${balanceHtml(c.balance_paise)}
+      <span class="meta">${c.last_activity ? "Last entry " + when(c.last_activity) : "No entries yet"}</span></button></li>`).join("");
+  }
+  state.flashId = null;
+  ul.querySelectorAll("button[data-id]").forEach(b => b.onclick = () => openCustomer(+b.dataset.id));
+  const owing = state.customers.filter(c => c.balance_paise > 0).length;
+  $("#count").textContent = `${state.customers.length} customers, ${owing} with baaki`;
+}
+$("#search").oninput = renderList;
+
+async function openCustomer(id){
+  const c = await api(`/api/customers/${id}`);
+  const b = c.balance_paise;
+  $("#sheetBody").innerHTML = `
+    <header><div><h3>${esc(c.name)}</h3><div class="sub">${c.tag ? esc(c.tag) + ", " : ""}customer since ${when(c.created_at)}</div></div>
+    <button class="x" aria-label="Close" data-close>×</button></header>
+    <div class="big">${b > 0 ? inr(b) : b < 0 ? inr(-b) : "₹0"}</div>
+    <div class="sub">${b > 0 ? "Baaki: customer owes the shop" : b < 0 ? "Advance: shop owes the customer" : "Account settled"}</div>
+    <form class="entry-form" id="entryForm">
+      <input id="entryAmt" type="number" min="1" step="0.01" placeholder="Amount ₹" required aria-label="Amount in rupees">
+      <button class="btn" data-kind="credit">Add udhaar</button>
+      <button class="btn line" data-kind="payment">Add jama</button>
+    </form>
+    <ul class="entries">${c.transactions.length ? c.transactions.map(t => `
+      <li class="${t.voided_at ? "void" : ""}">
+        <span class="k ${t.kind}">${t.kind === "credit" ? "Udhaar" : "Jama"}${t.voided_at ? (t.void_reason === "corrected" ? " (corrected)" : " (removed)") : ""}</span>
+        <span class="v">${inr(t.amount_paise)}</span>
+        ${t.voided_at ? "<span></span>" : `<button class="rm" data-void="${t.id}">Remove</button>`}
+        <span class="w">${when(t.created_at)}${t.transcript ? ", heard “" + esc(t.transcript) + "”" : t.source === "manual" ? ", typed" : ""}</span>
+      </li>`).join("") : `<li class="empty">No entries yet.</li>`}</ul>
+    <div class="tagrow"><input id="tagInput" value="${esc(c.tag)}" placeholder="Customer note" aria-label="Customer note">
+    <input id="phoneInput" value="${esc(c.phone || "")}" placeholder="Mobile number for SMS" aria-label="Customer mobile number">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input id="smsOptIn" type="checkbox" ${c.sms_opt_in ? "checked" : ""}> Customer agreed to SMS</label>
+    <button class="btn line" id="saveTag">Save details</button></div>`;
+  const sheet = $("#sheet");
+  sheet.querySelector("[data-close]").onclick = () => sheet.close();
+  let kind = "credit";
+  sheet.querySelectorAll("#entryForm button").forEach(btn => btn.onclick = () => kind = btn.dataset.kind);
+  $("#entryForm").onsubmit = async e => {
+    e.preventDefault();
+    await api(`/api/customers/${id}/entries`, { method:"POST", body: JSON.stringify({ kind, amount: +$("#entryAmt").value }) });
+    state.flashId = id; await refresh(); openCustomer(id);
+  };
+  sheet.querySelectorAll("[data-void]").forEach(btn => btn.onclick = async () => {
+    await api(`/api/transactions/${btn.dataset.void}/void`, { method:"POST" });
+    await refresh(); openCustomer(id);
+  });
+  $("#saveTag").onclick = async () => {
+    await api(`/api/customers/${id}`, { method:"PATCH", body: JSON.stringify({ tag: $("#tagInput").value, phone: $("#phoneInput").value, sms_opt_in: $("#smsOptIn").checked }) });
+    await refresh(); openCustomer(id);
+  };
+  if (!sheet.open) sheet.showModal();
+}
+$("#sheet").addEventListener("click", e => { if (e.target.id === "sheet") e.target.close(); });
+
+$("#addBtn").onclick = async () => {
+  const name = prompt("Customer name");
+  if (!name || !name.trim()) return;
+  const tag = prompt("Customer note (optional)") || "";
+  const phone = prompt("Customer mobile number for SMS notifications (optional)") || "";
+  const sms_opt_in = !!phone && confirm("Has this customer agreed to receive transaction SMS messages?");
+  const c = await api("/api/customers", { method:"POST", body: JSON.stringify({ name: name.trim(), tag, phone, sms_opt_in }) });
+  state.flashId = c.id; refresh();
+};
+
+/* ---------- typed input + undo ---------- */
+$("#typed").onsubmit = e => {
+  e.preventDefault();
+  const t = $("#typedInput").value.trim(); if (!t) return;
+  setSaid(t, false); $("#typedInput").value = "";
+  send({ alternatives: [{ text: t, confidence: 1 }], lang_hint: state.lang });
+};
+$("#undo").onclick = async () => handle(await api("/api/undo", { method:"POST", body: JSON.stringify({ lang: state.lang }) }));
+
+/* keyboard: space toggles the mic when not typing */
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" && !["INPUT","TEXTAREA","BUTTON"].includes(document.activeElement.tagName) && !$("#sheet").open){
+    e.preventDefault(); listen();
+  }
+});
+
+// Multi-page views
+function showPage(page){
+  document.querySelectorAll("[data-view]").forEach(el=>el.classList.toggle("page-hidden", el.dataset.view!==page));
+  document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===page));
+  if(page==="customers") renderCustomerTable();
+  if(page==="ledgers") renderLedgerTable();
+  if(page==="messages") renderSmsTable();
+  if(page==="store") loadStore();
+}
+document.querySelectorAll("[data-page]").forEach(b=>b.onclick=()=>showPage(b.dataset.page));
+async function renderCustomerTable(){
+  const q=( $("#customerSearch2").value||"").toLowerCase();
+  const cs=state.customers.filter(c=>(c.label+" "+(c.phone||"")).toLowerCase().includes(q));
+  $("#customerTable").innerHTML=`<table class="data-table"><thead><tr><th>Customer</th><th>Mobile</th><th>Balance</th><th>Last activity</th></tr></thead><tbody>${cs.map(c=>`<tr><td><a href="#" data-cid="${c.id}">${esc(c.label)}</a></td><td>${esc(c.phone||"Not added")}</td><td>${inr(c.balance_paise)}</td><td>${when(c.last_activity)}</td></tr>`).join("")}</tbody></table>`;
+  $("#customerTable").querySelectorAll("[data-cid]").forEach(a=>a.onclick=e=>{e.preventDefault();openCustomer(+a.dataset.cid)});
+}
+async function renderLedgerTable(){
+  const q=( $("#ledgerSearch").value||"").toLowerCase(); const tx=await api("/api/transactions/recent?limit=100");
+  const rows=tx.filter(t=>(t.customer_name+" "+t.kind).toLowerCase().includes(q));
+  $("#ledgerTable").innerHTML=`<table class="data-table"><thead><tr><th>Date</th><th>Customer</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead><tbody>${rows.map(t=>`<tr><td>${when(t.created_at)}</td><td>${esc(t.customer_name)}</td><td>${t.kind}</td><td>${inr(t.amount_paise)}</td><td>${t.voided_at?"Removed":"Active"}</td></tr>`).join("")}</tbody></table>`;
+}
+async function renderSmsTable(){
+  const rows=await api("/api/messages"); $("#smsTable").innerHTML=`<table class="data-table"><thead><tr><th>Date</th><th>Mobile</th><th>Message</th><th>Status</th></tr></thead><tbody>${rows.map(m=>`<tr><td>${when(m.created_at)}</td><td>${esc(m.phone)}</td><td>${esc(m.message)}</td><td>${esc(m.status)}</td></tr>`).join("")||"<tr><td colspan=4>No SMS records yet.</td></tr>"}</tbody></table>`;
+}
+$("#customerSearch2").oninput=renderCustomerTable; $("#ledgerSearch").oninput=renderLedgerTable;
+$("#addCustomer2").onclick=()=>$("#addBtn").click();
+async function loadStore(){const s=await api("/api/store"); for(const k of ["store_name","owner_name","phone","address"]) $("#storeForm").elements[k].value=s[k]||"";}
+$("#storeForm").onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));await api("/api/store",{method:"PUT",body:JSON.stringify(d)});alert("Store details saved");};
+$("#requestOtp").onclick=async()=>{try{const r=await api("/api/auth/request-otp",{method:"POST",body:JSON.stringify({phone:$("#ownerPhone").value})});$("#phoneStep").classList.add("page-hidden");$("#otpStep").classList.remove("page-hidden");$("#authMessage").textContent=r.dev_otp?`Development OTP: ${r.dev_otp}. Configure Twilio to send real OTPs.`:r.message;}catch(e){$("#authMessage").textContent=e.message;}};
+$("#verifyOtp").onclick=async()=>{try{await api("/api/auth/verify-otp",{method:"POST",body:JSON.stringify({phone:$("#ownerPhone").value,code:$("#ownerOtp").value})});$("#authCover").classList.add("page-hidden");await refresh();}catch(e){$("#authMessage").textContent=e.message;}};
+$("#logoutBtn").onclick=async()=>{disableWake(false);await api("/api/auth/logout",{method:"POST"});$("#authCover").classList.remove("page-hidden");$("#phoneStep").classList.remove("page-hidden");$("#otpStep").classList.add("page-hidden");};
+(async()=>{try{const me=await api("/api/auth/me");if(me.authenticated){$("#authCover").classList.add("page-hidden");await refresh();}else{$("#authCover").classList.remove("page-hidden");}}catch(e){$("#authCover").classList.remove("page-hidden");}})();
+
+</script>
+</body>
+</html>
