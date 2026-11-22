@@ -1,4 +1,0 @@
-# Own voice assistant (speech-to-text + voice). Install with: python ../scripts/setup_voice.py
-# PyTorch is installed by that script from the CPU-only index (much smaller download).
-transformers>=4.44,<5
-uroman>=1.3

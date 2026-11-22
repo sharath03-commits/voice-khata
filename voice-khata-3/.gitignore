@@ -1,7 +1,0 @@
-__pycache__/
-*.pyc
-.venv/
-backend/voice_khata.db*
-.pytest_cache/
-.env
-backend/.env
