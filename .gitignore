@@ -1,9 +1,7 @@
 __pycache__/
 *.pyc
 .venv/
-.env
 backend/voice_khata.db*
-*.db
-*.sqlite
-*.sqlite3
 .pytest_cache/
+.env
+backend/.env

@@ -1,128 +1,127 @@
-# Voice Khata
+# Voice Khata 2.0
 
-AI-powered voice ledger for kirana stores. Team QuantumCrew, PS2.
+AI voice assistant for kirana stores. Team QuantumCrew, PS2.
 
-A shopkeeper says *"Ramesh ka 340 udhaar"* and the ledger records ₹340 credit for Ramesh, then speaks back the new balance. It understands Kannada, Hindi and English (and mixes of them), and it never guesses: if the customer, amount or credit/payment is unclear, it asks one short question before saving anything.
+The shopkeeper says *“Hey Khata, Ramesh ka 340 udhaar”* in Kannada, Hindi, English or a mix. Voice Khata hears it with **its own speech recogniser**, understands it with **its own trained language model**, writes it in the khata, and answers in **its own voice**. No browser speech services are needed.
+
+## What's new in 2.0
+
+| | 1.0 | 2.0 |
+|---|---|---|
+| Speech to text | Browser (Google) | Own server: Whisper models fine-tuned for Kannada and Hindi |
+| Understanding | Keyword rules | Own trained language model (intent classifier + CRF tagger), rules only as a money safety check |
+| Voice reply | Browser voice | Own server: Meta MMS voices for Kannada, Hindi, English |
+| Hey Khata | Browser recogniser, unreliable | Own voice-activity detector + own wake-word recogniser |
+| App | Web page | Installable mobile app (PWA), new signboard theme |
+| Spoken numbers | A few words | Every number 1–99 plus hundreds, thousands, lakhs in all three languages |
+| Security | Any phone could log in | Only the owner's number can log in |
+
+## The voice system (version 3)
+
+Built around what works on an ordinary shop laptop:
+
+- **One microphone controller.** Only one listener exists at a time and it is fully stopped before the next starts; Chrome silently refuses overlapping listeners, which caused missed wake words before.
+- **Hey Khata** restarts itself when Chrome ends a listening session, backs off on errors, never listens to its own replies, matches the wake phrase by sound in any script (हे खाता / हे कथा / ಹೇ ಖಾತಾ / ಏ ಕತಾ / hey kata), and accepts a command in the same breath.
+- **Voice replies** use the engine chosen in the app (fast / own offline / browser), with a time limit and automatic fallback, so a slow engine can never freeze the conversation. Replies are cached on disk.
+- **Test my setup** (Store page) checks browser, microphone, server, language model and every voice, and applies the fastest working settings.
+- Every path is tested in a real browser with a simulated Chrome recogniser that reproduces Chrome's quirks (`tests` plus the UI test scripts).
+
+See **QUICKSTART.md** for the shopkeeper's steps.
 
 ## Run it
 
-You need Python 3.10+ and Google Chrome (desktop or Android).
-
-```bash
-./run.sh            # macOS / Linux
-run.bat             # Windows
+```
+run.bat            (Windows)
+./run.sh           (Mac / Linux)
 ```
 
-Open http://localhost:8000, pick ಕನ್ನಡ / हिंदी / English, tap the mic, and speak.
+Open http://localhost:8000. If Twilio isn't set up, the login code is shown on screen (demo mode).
 
-To load demo customers first (from the `backend` folder): `python ../scripts/seed_demo.py`.
+At this point the trained language model already works. Voice falls back to the phone's speech until step 2 is done.
 
-### Using it on an Android phone
+## Install the own voice assistant (one time, needs internet once)
 
-Chrome only allows the microphone on `https://` or `localhost`. Two easy options:
-
-1. **USB:** connect the phone, open `chrome://inspect` on the laptop, add port forwarding `8000 → localhost:8000`, then open `http://localhost:8000` on the phone.
-2. **Tunnel:** run `ngrok http 8000` (or `cloudflared tunnel --url http://localhost:8000`) and open the https link on the phone.
-
-### Run the tests
-
-```bash
-cd backend && python -m pytest -q      # 35 tests
+```
+cd backend
+python ../scripts/setup_voice.py
 ```
 
-## What it does (matches the deck)
+This installs PyTorch (CPU) and the speech libraries, downloads the models (about 1–2.5 GB), and runs a self-test where our voice speaks a sentence, our recogniser hears it, and the language model understands it. For a lighter install use `--lang kn` or `--lang hi`. A laptop with 8 GB RAM is recommended.
 
-| Deck feature | How it works here |
+Then restart the app and open **Store → Voice assistant → Load voice models** before demoing, so the first command is fast.
+
+## Install it on a phone as an app
+
+The microphone and app install need https.
+1. Run `ngrok http 8000` (or `cloudflared tunnel --url http://localhost:8000`).
+2. Open the https link in Chrome on the phone, log in, then **⋮ → Add to Home screen / Install app**.
+
+## Using it
+
+- **Tap the yellow mic** and speak. It stops by itself when you pause.
+- **Hey Khata**: turn it on and the app keeps listening. Say “Hey Khata”, wait for the chime, then speak. Or say it in one breath: “Hey Khata, Lakshmi 1250 jama”.
+- If it needs something (new customer, unclear amount, credit or payment?), it asks and listens for your answer.
+- Corrections: “Nahi, 430”. Remove: “undo”. Reports: “aaj ka hisaab”, “ರಮೇಶ್ ಬಾಕಿ ಎಷ್ಟು”, “sabka baaki kitna”.
+
+## How the AI works
+
+```
+Phone mic ─► voice-activity detector (in the app, 16 kHz)
+          ─► /api/voice/wake     whisper-tiny  → “Hey Khata”?
+          ─► /api/voice/command  Whisper (Kannada / Hindi / English model) → 3 best transcripts
+          ─► language model      intent + customer + amount + quantity
+          ─► validation engine   asks back when unsure, never guesses
+          ─► SQLite ledger       amounts in paise, nothing ever deleted
+          ─► /api/voice/tts      MMS voice speaks the reply
+```
+
+### The language model (`backend/app/nlu/`)
+
+Trained by us on our own generated corpus. Retrain any time with `python -m app.nlu.train` (about a minute).
+
+- **Corpus** (`corpus.py`): about 450 sentence patterns across 10 intents, written in Kannada script, Devanagari, romanised Hindi, romanised Kannada, English and code-mixed speech. They are filled with 130+ names (also transliterated into Kannada and Devanagari), amounts as digits and as spoken words in all three languages, quantities and items. Speech-style noise is added: fillers, honorifics, dropped words and spelling variants. This produces 25,000 training sentences.
+- **Intent classifier**: character 1–5-grams + word 1–2-grams → logistic regression. Character n-grams work across scripts and spellings, so it understands words like *ಕೊಟ್ಟಿದ್ದಾನೆ* or *udhaara* that it never saw exactly.
+- **Slot tagger**: a Conditional Random Field that labels every word as customer name, money amount, quantity or other, using the word, its prefixes and suffixes, its script, and its neighbours.
+- **Test set**: 30 names never seen in training, plus 40% of sentences in patterns held out from training.
+
+| Measure | Score |
 |---|---|
-| Multilingual voice recognition | Chrome's streaming speech recognition in `kn-IN`, `hi-IN` or `en-IN`, up to 5 alternative transcripts sent to the server; the parser picks the one that makes the most sense. Names match across scripts: Ramesh, रमेश and ರಮೇಶ್ are the same customer. |
-| Intelligent number recognition | Digits, Devanagari and Kannada numerals, `1,250`, `2k`, words (*do sau pachas*, *dedh hazaar*, *saade teen sau*, *ಎರಡು ಸಾವಿರದ ಐನೂರು*, *two thousand five hundred*). Quantities like *2 kilo* are ignored so they are never taken as money. |
-| Smart credit & payment detection | Keyword and grammar scoring: *udhaar / ಉದ್ರಿ / credit* means credit; *jama / diya / ಕೊಟ್ಟರು / paid* means payment. *Ramesh **ne** 200 diya* (Ramesh gave) is payment; *Ramesh **ko** 200 diya* (shop gave) is treated as credit but confirmed first. |
-| Voice corrections | *"Nahi, 430"* fixes the entry being confirmed or the last saved one. The old entry is kept, marked corrected, for an audit trail. *"Undo"* removes the last entry. |
-| Duplicate customer names | Two Anils? It asks *"Anil (doodh wala) ya Anil (school teacher)?"*; answer by voice (*"doodh wala"*, *"pehla"*) or tap. |
-| Voice reports | *"Ramesh ka baaki kitna"*, *"ರಮೇಶ್ ಬಾಕಿ ಎಷ್ಟು"*, *"aaj ka hisaab"*, *"sabka baaki kitna"*. |
-| Validate before record | Saves straight away only when everything is certain. Otherwise asks to confirm when: new customer, unsure credit/payment, low speech confidence, amount ≥ ₹5,000, payment larger than what's owed, or the same entry repeated within 90 seconds. |
-| Spoken reply | Replies in the language spoken. Hindi replies are shown romanised (as in the deck) and spoken in Devanagari so the voice sounds natural. |
+| Intent accuracy, new names, known sentence styles | **99.8%** |
+| Intent accuracy, new names, sentence styles never seen | **76.7%** |
+| Finding names / amounts / quantities (slot F1) | **97.0%** |
+| Model size | about 1.2 MB, runs instantly on a laptop |
 
-Also included: hands-free mode (listens again after each reply), typed input fallback, manual entries, per-customer history showing what was heard, CSV export, light/dark mode, works on a phone screen.
+The original rules stay on as a **money safety check**. When the model and rules disagree about credit vs payment, or the model is unsure, Voice Khata asks instead of saving.
 
-## Architecture
+Try it live: `POST /api/nlu/understand {"text": "ಸುರೇಶ್ ಕಡೆಯಿಂದ ಮುನ್ನೂರು ಬಂದಿದೆ"}` shows the word-by-word tags and intent probabilities.
 
-```
-Voice input (Chrome mic)
-  → Speech-to-text (Web Speech API, kn-IN / hi-IN / en-IN, 5 alternatives)
-  → POST /api/utterance
-      parser.py   language + numbers + intent + credit/payment + customer name
-      engine.py   validate → ask back (pending draft) or record
-      ledger.py   SQLite, amounts in paise, entries voided never deleted
-      messages.py reply text + TTS text in kn / hi / en
-  → Text-to-speech reply (speechSynthesis) + ledger refresh
-```
+### Speech models (open models, running on our server)
 
-```
-voice-khata/
-├── backend/
-│   ├── app/
-│   │   ├── main.py       FastAPI routes, serves the frontend
-│   │   ├── parser.py     multilingual NLP (no external AI service needed)
-│   │   ├── engine.py     dialogue + validation state machine
-│   │   ├── ledger.py     SQLite storage
-│   │   └── messages.py   localised replies
-│   ├── tests/            35 pytest tests
-│   └── requirements.txt
-├── frontend/index.html   single-page voice app
-├── scripts/seed_demo.py
-├── run.sh / run.bat
-```
-
-The parser is rule-based and runs offline on the server, so there is no API key, no per-request cost, and every decision is explainable. It is deliberately a separate module so it can later be swapped for or backed by an Indic NLP model.
-
-## API
-
-| Method | Path | Purpose |
+| Job | Default model | Why |
 |---|---|---|
-| POST | `/api/utterance` | `{"alternatives":[{"text","confidence"}], "lang_hint"}` or `{"text": "..."}`; tap answers use `{"confirm": true}` or `{"choice": {...}}` |
-| POST | `/api/undo` | Remove the last entry (last 30 min) |
-| POST | `/api/pending/cancel` | Drop the entry waiting for an answer |
-| GET | `/api/customers` | All customers with balances |
-| POST | `/api/customers` | Add `{name, tag, phone}` |
-| GET / PATCH | `/api/customers/{id}` | History / edit name, note |
-| POST | `/api/customers/{id}/entries` | Manual `{kind, amount}` (rupees) |
-| POST | `/api/transactions/{id}/void` | Remove an entry |
-| GET | `/api/report/today` | Today's credit, payments, total outstanding |
-| GET | `/api/export.csv` | Full ledger download |
+| Kannada speech-to-text | `vasista22/whisper-kannada-small` | Whisper fine-tuned on Kannada speech (IIT Madras) |
+| Hindi speech-to-text | `vasista22/whisper-hindi-small` | Whisper fine-tuned on Hindi speech (IIT Madras) |
+| English speech-to-text | `openai/whisper-base` | Indian English |
+| Wake word | `openai/whisper-tiny` | Small and fast for short clips |
+| Voice | `facebook/mms-tts-kan / -hin / -eng` | Natural Kannada, Hindi and English voices |
 
-Interactive docs at http://localhost:8000/docs.
+Voices can't read digits or English letters in Kannada, so every reply is prepared first: ₹340 becomes *ಮುನ್ನೂರ ನಲವತ್ತು ರೂಪಾಯಿ* and Ramesh becomes ರಮೇಶ್ (`numbers.py`, `translit.py`). All model names can be changed in `.env`.
 
-### Settings (environment variables)
+## Settings (`backend/.env`, copy from `.env.example`)
 
-`VK_CONFIRM_ABOVE` (rupees, default 5000), `VK_AUTO_SAVE_CONFIDENCE` (default 0.75), `VK_MIN_STT_CONFIDENCE` (default 0.55), `VK_DB` (database path).
+`VK_OWNER_PHONE` (only this number can log in), `VK_ALLOW_DEV_OTP` (show the code on screen in demo mode), Twilio keys for customer SMS, and model overrides.
 
-## Demo script for judges (about 90 seconds)
+## Tests
 
-1. Hindi selected. Say **"Ramesh ka 340 udhaar."** It says *Ramesh naya customer hai…* (new customer). Say **"haan"**. Saved, *Baaki ₹340*.
-2. Say **"Ramesh ne 200 diya."** Saved, *Baaki ₹140* (slide 7 of the deck, live).
-3. Say **"Lakshmi ka 1750 udhaar"**, then immediately **"Nahi, 1250."** Corrected; her history shows the old entry struck out.
-4. Switch to ಕನ್ನಡ. Say **"ರಮೇಶ್ ಬಾಕಿ ಎಷ್ಟು"**. Kannada reply, same Ramesh.
-5. With demo data loaded, say **"Anil ka 50 udhaar"**. It asks which Anil. Say **"doodh wala."**
-6. Say **"aaj ka hisaab."**
+```
+cd backend && python -m pytest -q        # 60 tests
+```
 
-## Limits to know
+They cover number words in three languages, transliteration, the trained model on new phrasings, the wake word, speech preparation, the voice API (with a stand-in recogniser), the dialogue engine, and owner-only login.
 
-- Voice input needs Chrome (Android or desktop). Safari/Firefox can use typed input.
-- Chrome's Kannada and Hindi speech recognition needs internet. The ledger itself is local.
-- One shop per server; no login yet. Encryption at rest and multi-store accounts are the next steps listed on the deck's scalability slide.
+## Honest notes for judges
 
-## New owner login and customer SMS features
-
-- Owner login uses a mobile OTP. In local development, when Twilio is not configured, the API returns a `dev_otp` value for testing. **Do not expose development OTP mode in production.** Set `VK_ALLOW_DEV_OTP=false` in production.
-- Customer SMS notifications are triggered after a successful voice or manual credit/payment transaction when that customer has a phone number.
-- SMS delivery uses Twilio Programmable Messaging. Configure `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_FROM` on the server. For Indian numbers, 10-digit numbers are normalized to +91. Production Indian messaging may require DLT registration, approved sender IDs/templates, and provider compliance setup.
-- `VK_REQUIRE_AUTH=true` (default) protects API routes with the owner session cookie. OTP request and verification routes remain public by design.
-- `VK_COOKIE_SECURE=true` should be set when serving over HTTPS. Sessions expire after 14 days.
-- SMS attempts and provider errors are visible in the SMS History page. A missing phone number means no message is attempted.
-- The frontend now includes Dashboard, Voice Assistant, Customers, All Ledgers, SMS History, and Store Details pages. The original voice UI and parser remain in place.
-- Customer SMS is sent only when a phone number is saved **and** the `Customer agreed to SMS` opt-in is enabled in that customer's details. Obtain and retain customer permission before enabling notifications.
-
-### Environment setup for deployment
-
-Copy `.env.example` to `.env` and load it through your process manager or deployment platform. Never commit real Twilio credentials. For local development without Twilio, leave `VK_ALLOW_DEV_OTP=true` (the default in code) so the OTP is shown in the response; for a deployed app, set it to `false` and configure Twilio first. Serve over HTTPS and set `VK_COOKIE_SECURE=true` in production.
+- **We trained the language model ourselves. The speech models are open-source models we run on our own server.** Training speech recognition from scratch needs thousands of hours of recorded speech. Fine-tuning Whisper on recordings from real kirana shops is our next step.
+- Kannada speech recognition is the hardest part; the fine-tuned model is much better than plain Whisper. Noise is handled by the app's noise suppression, our voice-activity detector, 3-best transcripts, and confirmation when unsure.
+- Wake word works while the app is open on screen; a phone stops background listening for battery and privacy reasons.
+- Real customer SMS in India needs DLT registration; a Twilio trial only sends to verified numbers.

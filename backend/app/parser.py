@@ -137,6 +137,13 @@ UNITS = {
     "dedh": 1.5, "derh": 1.5, "डेढ़": 1.5, "डेढ": 1.5,
     "dhai": 2.5, "dhaai": 2.5, "adhai": 2.5, "ढाई": 2.5,
 }
+# Every 1-99 form in Hindi, Kannada (incl. sandhi: ಇಪ್ಪತ್ತೈದು) and romanised Hindi.
+from .numbers import WORD_VALUES as _WORD_VALUES  # noqa: E402
+for _w, _v in _WORD_VALUES.items():
+    if _w not in ("saath", "sath", "das") or _w == "das":
+        UNITS.setdefault(_w, _v)
+UNITS.pop("saath", None)
+
 # Words that are numbers only when next to another number ("do sau" = 200,
 # but "do" alone is usually the verb "give").
 WEAK_UNITS = {"do": 2, "दो": 2}
@@ -147,7 +154,7 @@ MULTIPLIERS = {
     "hajaar": 1000, "saavira": 1000, "savira": 1000, "saavirada": 1000,
     "हज़ार": 1000, "हजार": 1000, "ಸಾವಿರ": 1000, "ಸಾವಿರದ": 1000,
     "lakh": 100000, "lakhs": 100000, "lac": 100000, "laksha": 100000,
-    "लाख": 100000, "ಲಕ್ಷ": 100000,
+    "लाख": 100000, "ಲಕ್ಷ": 100000, "ಲಕ್ಷದ": 100000,
 }
 MODIFIERS = {"saade": 0.5, "sade": 0.5, "साढ़े": 0.5, "साढे": 0.5,
              "sava": 0.25, "savaa": 0.25, "सवा": 0.25,
@@ -274,6 +281,8 @@ class ParseResult:
     yes: bool = False
     no: bool = False
     tokens: list = field(default_factory=list)
+    source: str = "rules"          # "model" when our trained language model decided
+    model_conf: float = 0.0
 
     @property
     def quality(self) -> float:
@@ -375,8 +384,9 @@ def _spans(tokens: list[str]):
             joinable = True
             if n[0] in ("d", "u", "w") and last_k in ("d", "u", "w"):
                 # "twenty five" joins; "340 200" does not
-                joinable = (last_k in ("u", "w") and last_v >= 20 and last_v % 10 == 0
-                            and n[1] < 10 and n[0] != "d")
+                joinable = n[0] != "d" and last_k in ("u", "w") and (
+                    (20 <= last_v < 100 and last_v % 10 == 0 and n[1] < 10)      # twenty five
+                    or (last_v >= 100 and last_v % 100 == 0 and n[1] < 100))  # ಮುನ್ನೂರ ನಲವತ್ತು
             elif n[0] in ("d", "u", "w") and last_k == "m":
                 joinable = n[1] < last_v * (1000 if last_v >= 1000 else 1)
             elif n[0] == "f":
@@ -443,6 +453,96 @@ def extract_amounts(tokens: list[str]):
 # Main entry
 # --------------------------------------------------------------------------
 def parse(text: str, lang_hint: Optional[str] = None) -> ParseResult:
+    """Understand one sentence: trained language model first, rules as a safety check."""
+    r = rule_parse(text, lang_hint)
+    try:
+        from .nlu import model as nlu
+        pred = nlu.predict(tokenize(text))
+    except Exception:
+        pred = None
+    if not pred:
+        return r
+    return _merge(r, pred, text)
+
+
+_INTENT_MAP = {"credit": "transaction", "payment": "transaction", "amount_only": "transaction",
+               "balance": "balance", "report_today": "report_today", "report_all": "report_all",
+               "correction": "correction", "undo": "undo", "yes": "yes", "no": "no"}
+
+
+def _tag_spans(tags, label):
+    out, cur = [], []
+    for i, g in enumerate(tags):
+        if g == "B-" + label or (g == "I-" + label and cur):
+            if g.startswith("B-") and cur:
+                out.append(cur); cur = []
+            cur.append(i)
+        elif cur:
+            out.append(cur); cur = []
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _merge(r: ParseResult, pred: dict, text: str) -> ParseResult:
+    raw = tokenize(text)
+    tags = pred["tags"]
+    conf = pred["confidence"]
+    m_intent = pred["intent"]
+    r.model_conf = round(conf, 3)
+
+    # Very short answers ("jama", "haan", "340") are handled reliably by the rules.
+    if conf < 0.55 or (len(raw) <= 2 and r.intent not in ("unknown", "name_only")):
+        return r
+    r.source = "model"
+
+    # ---- money: amounts the model marked, quantities it marked are ignored
+    values = []
+    for sp in _tag_spans(tags, "AMT"):
+        a, opts, _ = extract_amounts([raw[i] for i in sp])
+        if a:
+            values.append(a)
+        values += opts
+    values = list(dict.fromkeys(values))
+    if len(values) == 1:
+        r.amount, r.amount_options = values[0], []
+    elif len(values) > 1:
+        r.amount, r.amount_options = None, values
+
+    # ---- customer name (only where a name makes sense; never "Woh" from "nahi woh 430")
+    model_intent_has_name = pred["intent"] in ("credit", "payment", "amount_only", "balance")
+    if not model_intent_has_name:
+        r.name = None
+    for sp in _tag_spans(tags, "NAME"):
+        parts = [_strip_suffix(raw[i])[0] for i in sp]
+        parts = [p for p in parts if p not in _known() and not re.fullmatch(r"[\d.]+", p)]
+        if parts:
+            r.name = " ".join(p.capitalize() if re.fullmatch(r"[a-z]+", p) else p for p in parts)
+            break
+
+    # ---- intent and credit/payment
+    intent = _INTENT_MAP.get(m_intent, r.intent)
+    if m_intent in ("credit", "payment"):
+        if r.kind == m_intent:
+            # rules saw an ambiguity ("Ramesh ko 200 diya")? keep their caution
+            r.kind_conf = min(r.kind_conf, conf) if r.kind_conf < 0.7 else max(r.kind_conf, conf)
+        elif r.kind and r.kind != m_intent:
+            r.kind, r.kind_conf = (m_intent, 0.5) if conf >= 0.85 else (None, 0.0)
+        else:
+            r.kind, r.kind_conf = m_intent, (conf if conf >= 0.9 else min(conf, 0.7))
+    elif m_intent == "amount_only" and not r.kind:
+        r.kind, r.kind_conf = None, 0.0
+    if intent == "correction" and not (r.amount or r.amount_options):
+        intent = "no"
+    if intent == "yes":
+        r.yes = True
+    if intent == "no":
+        r.no = True
+    r.intent = intent
+    return r
+
+
+def rule_parse(text: str, lang_hint: Optional[str] = None) -> ParseResult:
     raw_tokens = tokenize(text)
     tokens, roles = [], {}
     for t in raw_tokens:

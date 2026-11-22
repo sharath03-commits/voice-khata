@@ -17,10 +17,19 @@ from fastapi import Request
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
+
+# Load backend/.env (Twilio keys, owner phone, ...) if python-dotenv is installed.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")   # backend/.env
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")   # project-root .env
+except ImportError:
+    pass
 
 from .engine import Engine
 from .ledger import Ledger
@@ -28,10 +37,29 @@ from .ledger import Ledger
 DB_PATH = os.getenv("VK_DB", str(Path(__file__).resolve().parents[1] / "voice_khata.db"))
 FRONTEND = Path(os.getenv("VK_FRONTEND", Path(__file__).resolve().parents[2] / "frontend"))
 
-app = FastAPI(title="Voice Khata", version="1.0.0",
+app = FastAPI(title="Voice Khata", version="2.0.0",
               description="AI-powered multilingual voice ledger for kirana stores")
 ledger = Ledger(DB_PATH)
 engine = Engine(ledger)
+
+
+@app.on_event("startup")
+def _language_model_ready():
+    """If the trained model is missing or was saved by another scikit-learn version,
+    retrain it in the background (about a minute). Rules cover until it's ready."""
+    import threading
+    from .nlu import model as nlu
+    if not nlu.available():
+        def _train():
+            from .nlu import train
+            nlu._loaded["tried"] = False
+            train.main(per_intent=1500, test_per_intent=150)
+        threading.Thread(target=_train, daemon=True).start()
+    try:
+        from .speech import tts
+        tts.prewarm("fast")
+    except Exception:
+        pass
 
 @app.middleware("http")
 async def owner_auth_guard(request: Request, call_next):
@@ -145,18 +173,131 @@ class LangIn(BaseModel):
 
 
 # ---------------------------------------------------------------- voice
-@app.post("/api/utterance")
-def utterance(body: UtteranceIn):
-    alts = [a.model_dump() for a in body.alternatives]
-    if body.text:
-        alts.insert(0, {"text": body.text, "confidence": None})
+def run_engine(alts, lang_hint=None, choice=None, confirm=None, background: Optional[BackgroundTasks] = None):
+    """Engine + SMS. SMS goes out in the background so the spoken reply is never delayed."""
     before = ledger.db.execute("SELECT COALESCE(MAX(id),0) FROM transactions").fetchone()[0]
-    result = engine.handle(alts, body.lang_hint, choice=body.choice, confirm=body.confirm)
+    result = engine.handle(alts, lang_hint, choice=choice, confirm=confirm)
     if result.get("status") == "saved":
         row = ledger.db.execute("SELECT id FROM transactions WHERE id>? ORDER BY id DESC LIMIT 1", (before,)).fetchone()
         if row:
-            notify_transaction(ledger.transaction(row[0]))
+            txn = ledger.transaction(row[0])
+            if background is not None:
+                background.add_task(notify_transaction, txn)
+            else:
+                notify_transaction(txn)
     return result
+
+
+@app.post("/api/utterance")
+def utterance(body: UtteranceIn, background: BackgroundTasks):
+    alts = [a.model_dump() for a in body.alternatives]
+    if body.text:
+        alts.insert(0, {"text": body.text, "confidence": None})
+    return run_engine(alts, body.lang_hint, body.choice, body.confirm, background)
+
+
+# ---------------------------------------------------------------- own voice assistant
+@app.post("/api/voice/command")
+async def voice_command(request: Request, background: BackgroundTasks, lang: Literal["en", "hi", "kn"] = "hi"):
+    """Raw 16 kHz 16-bit mono PCM from the app -> our speech-to-text -> language model -> ledger."""
+    from .speech import audio as au, stt, wake
+    pcm = await request.body()
+    if len(pcm) < 3200:
+        raise HTTPException(400, "Audio too short")
+    try:
+        heard = await run_in_threadpool(stt.transcribe, au.pcm16_to_float(pcm), lang)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc))
+    alts = [{"text": wake.strip_wake(a["text"]), "confidence": a["confidence"]} for a in heard["alternatives"]]
+    alts = [a for a in alts if a["text"].strip()]
+    if not alts:
+        from .messages import render
+        return {"status": "error", "message_key": "not_understood", "heard": heard,
+                "options": [], **render("not_understood", lang)}
+    result = run_engine(alts, lang, background=background)
+    result["heard"] = heard
+    return result
+
+
+@app.post("/api/voice/wake")
+async def voice_wake(request: Request):
+    """Short clip -> is it 'Hey Khata'? Also returns any command said in the same breath."""
+    from .speech import audio as au, stt, wake
+    pcm = await request.body()
+    try:
+        heard = await run_in_threadpool(stt.transcribe, au.pcm16_to_float(pcm), "en", True)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc))
+    found = wake.find(heard["text"])
+    return {**found, "heard": heard["text"], "seconds": heard["seconds"]}
+
+
+@app.get("/api/voice/tts")
+async def voice_tts(text: str, lang: Literal["en", "hi", "kn"] = "hi",
+                    engine: Literal["fast", "own"] = "fast"):
+    """Spoken reply. engine=fast (Google voice, quick) or own (MMS voice on this server)."""
+    from .speech import tts
+    try:
+        audio, mime, used = await run_in_threadpool(tts.speak, text, lang, engine)
+    except Exception as exc:
+        raise HTTPException(503, f"Voice unavailable: {exc}"[:300])
+    return Response(audio, media_type=mime,
+                    headers={"Cache-Control": "private, max-age=86400", "X-Voice-Engine": used})
+
+
+@app.get("/api/voice/check")
+async def voice_check():
+    """Self-check for the Store page: is each part working, and how fast?"""
+    import time
+    from .nlu import model as nlu
+    from .parser import parse
+    from .speech import stt, tts
+    out = {}
+    t0 = time.time()
+    r = parse("Ramesh ka 340 udhaar")
+    out["language_model"] = {"ok": nlu.available() and r.amount == 34000 and r.kind == "credit",
+                             "ms": round((time.time() - t0) * 1000)}
+    for eng in ("fast", "own"):
+        t0 = time.time()
+        try:
+            _, _, used = await run_in_threadpool(tts.speak, "ಸರಿ", "kn", eng)
+            out[f"voice_{eng}"] = {"ok": used == eng, "seconds": round(time.time() - t0, 2), "used": used}
+        except Exception as exc:
+            out[f"voice_{eng}"] = {"ok": False, "error": str(exc)[:200]}
+    s = stt.status()
+    out["own_listening"] = {"ok": bool(s["libraries"]), "message": s["message"]}
+    return out
+
+
+@app.get("/api/voice/status")
+def voice_status():
+    from .nlu import model as nlu
+    from .speech import stt, tts
+    return {"speech_to_text": stt.status(), "text_to_speech": tts.status(),
+            "language_model": {"loaded": nlu.available(), **nlu.metrics()}}
+
+
+@app.post("/api/voice/warmup")
+async def voice_warmup(body: LangIn = LangIn()):
+    """Load the voice models into memory so the first command is fast."""
+    from .speech import stt, tts
+    langs = (body.lang,) if body.lang else ("hi", "kn", "en")
+    s = await run_in_threadpool(stt.warmup, langs)
+    t = await run_in_threadpool(tts.warmup, langs)
+    return {"speech_to_text": s, "text_to_speech": t}
+
+
+@app.post("/api/nlu/understand")
+def nlu_understand(body: UtteranceIn):
+    """Debug/demo: show exactly what the language model understood, without saving anything."""
+    from .nlu import model as nlu
+    from .parser import parse, tokenize
+    text = body.text or (body.alternatives[0].text if body.alternatives else "")
+    r = parse(text, body.lang_hint)
+    pred = nlu.predict(tokenize(text)) or {}
+    return {"text": text, "tokens": tokenize(text), "tags": pred.get("tags"), "intent_probabilities": pred.get("probs"),
+            "result": {"intent": r.intent, "kind": r.kind, "amount_paise": r.amount, "name": r.name,
+                       "language": r.lang, "by": r.source, "model_confidence": r.model_conf}}
 
 
 @app.post("/api/undo")
@@ -202,11 +343,11 @@ def customer(cid: int):
 
 
 @app.post("/api/customers/{cid}/entries", status_code=201)
-def manual_entry(cid: int, body: ManualEntry):
+def manual_entry(cid: int, body: ManualEntry, background: BackgroundTasks):
     if not ledger.customer(cid):
         raise HTTPException(404, "Customer not found")
     txn = ledger.add_transaction(cid, body.kind, round(body.amount * 100), source="manual")
-    notify_transaction(txn)
+    background.add_task(notify_transaction, txn)
     return {"transaction": txn, "balance_paise": ledger.balance(cid)}
 
 
@@ -248,6 +389,9 @@ def request_otp(body: OTPRequest):
     phone = "".join(ch for ch in body.phone if ch.isdigit())
     if len(phone) < 10:
         raise HTTPException(400, "Enter a valid mobile number")
+    owner = "".join(ch for ch in (os.getenv("VK_OWNER_PHONE") or ledger.get_store().get("phone") or "") if ch.isdigit())
+    if owner and phone[-10:] != owner[-10:]:
+        raise HTTPException(403, "This number is not the store owner's number")
     code = f"{secrets.randbelow(1000000):06d}"
     expires = (ledger_now() + timedelta(minutes=5)).isoformat()
     ledger.db.execute("INSERT OR REPLACE INTO otp_codes(phone,code_hash,expires_at,attempts,created_at) VALUES(?,?,?,?,?)",
@@ -316,3 +460,13 @@ if FRONTEND.exists():
     @app.get("/", include_in_schema=False)
     def index():
         return FileResponse(FRONTEND / "index.html")
+
+    # Installable mobile app (PWA): the service worker must be served from the root.
+    @app.get("/sw.js", include_in_schema=False)
+    def service_worker():
+        return FileResponse(FRONTEND / "sw.js", media_type="application/javascript",
+                            headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
+
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    def manifest():
+        return FileResponse(FRONTEND / "manifest.webmanifest", media_type="application/manifest+json")

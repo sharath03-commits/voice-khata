@@ -41,9 +41,12 @@ class Engine:
                 return self._reply("not_understood", self.last_lang, status="error")
             r, conf = self._best(alts, lang_hint)
             self.last_lang = r.lang
-            if self.pending:
-                return self._continue(r, conf)
-            return self._fresh(r, conf)
+            out = self._continue(r, conf) if self.pending else self._fresh(r, conf)
+            out["understanding"] = {"heard": r.text, "intent": r.intent, "kind": r.kind,
+                                    "amount_paise": r.amount, "name": r.name, "language": r.lang,
+                                    "by": "trained model" if r.source == "model" else "rules",
+                                    "model_confidence": r.model_conf}
+            return out
 
     def state(self) -> dict:
         return {"pending": self._public_pending()}
@@ -226,6 +229,12 @@ class Engine:
         if r.intent not in ("yes", "no") or r.lang != "en":
             d["lang"] = r.lang
 
+        # An answer to "which one?" wins over everything else in the sentence.
+        if d["asking"] == "which" and d["candidates"]:
+            pick = self._pick_candidate(d["candidates"], r)
+            if pick:
+                d["customer"], d["candidates"], d["fuzzy"] = pick, [], False
+                return self._advance()
         if r.intent == "undo":
             return self.cancel()
         # A complete new command for a different customer replaces the draft.
